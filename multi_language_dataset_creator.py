@@ -4,6 +4,7 @@ import tensorflow_datasets as tfds
 from tqdm import tqdm
 import tiktoken
 import os
+from datetime import datetime
 
 def load_wiki40b(langs):
     """
@@ -124,18 +125,21 @@ def deep_decode(obj):
     else:
         return obj
 
-def export_data(final_datasets, output_dir):
+def export_data(final_datasets, output_dir, langs):
     """
     Export both training and validation datasets to JSON files.
 
     Args:
     final_datasets (dict): Dictionary of final datasets for training and validation sets.
     output_dir (str): Output directory to save datasets.
+    langs (list): List of language codes.
     """
     print("Step 5/7: Exporting data to JSON files...")
     final_datasets_decoded = deep_decode(final_datasets)
+    langs_str = '-'.join(langs)
     for split in final_datasets_decoded:
-        with open(os.path.join(output_dir, f'wiki40b_multilang_{split}.json'), 'w', encoding='utf-8') as file:
+        file_name = f'wiki40b_{langs_str}_{split}.json'
+        with open(os.path.join(output_dir, file_name), 'w', encoding='utf-8') as file:
             json.dump(final_datasets_decoded[split], file, ensure_ascii=False, indent=4)
     print("Step 5/7: Completed exporting data to JSON files.")
 
@@ -195,29 +199,33 @@ def enforce_token_limit(datasets, max_diff_percent):
     print("Step 6/7: Completed enforcing token limits.")
     return adjusted_datasets
 
-def split_and_save_data(datasets, output_dir):
+def split_and_save_data(datasets, output_dir, langs):
     """
     Save the training and validation datasets to JSON files.
 
     Args:
     datasets (dict): Dictionary of datasets for each split.
     output_dir (str): Output directory to save datasets.
+    langs (list): List of language codes.
 
     Returns:
     tuple: New training and validation data.
     """
     print("Step 7/7: Splitting and saving data...")
 
-    # Ensure the output directory exists
+    # Create the output directory with the specified format
+    date_str = datetime.now().strftime("%d.%m.%Y")
+    langs_str = '-'.join(langs)
+    output_dir = os.path.join(output_dir, f'datasets_{langs_str}_{date_str}')
     os.makedirs(output_dir, exist_ok=True)
 
     # Deep decode to ensure all text fields are decoded
     datasets = deep_decode(datasets)
 
-    with open(os.path.join(output_dir, 'wiki40b_multilang_train.json'), 'w', encoding='utf-8') as file:
-        json.dump(datasets['train'], file, ensure_ascii=False, indent=4)
-    with open(os.path.join(output_dir, 'wiki40b_multilang_validation.json'), 'w', encoding='utf-8') as file:
-        json.dump(datasets['validation'], file, ensure_ascii=False, indent=4)
+    for split in datasets:
+        file_name = f'wiki40b_{langs_str}_{split}.json'
+        with open(os.path.join(output_dir, file_name), 'w', encoding='utf-8') as file:
+            json.dump(datasets[split], file, ensure_ascii=False, indent=4)
     print("Step 7/7: Completed splitting and saving data.")
     return datasets['train'], datasets['validation']
 
@@ -239,7 +247,7 @@ def main(args):
 
     adjusted_datasets = enforce_token_limit(final_datasets, max_diff_percent)
     adjusted_datasets = deep_decode(adjusted_datasets)  # Ensure all text is decoded after adjusting
-    split_and_save_data(adjusted_datasets, output_dir)
+    split_and_save_data(adjusted_datasets, output_dir, langs)
     print("Dataset creation process completed successfully.")
 
 if __name__ == "__main__":
