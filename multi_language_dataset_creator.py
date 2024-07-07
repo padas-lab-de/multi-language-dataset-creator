@@ -1,7 +1,5 @@
 import argparse
 import json
-import pickle
-import random
 import tensorflow_datasets as tfds
 from tqdm import tqdm
 import tiktoken
@@ -150,29 +148,51 @@ def enforce_token_limit(datasets, max_diff_percent):
     print("Step 6/7: Enforcing token limits...")
     encoder = tiktoken.get_encoding("gpt2")
 
-    # Calculate token counts for each language
-    token_counts = {lang: calculate_token_counts(datasets[lang]['train']) for lang in datasets}
+    # Helper function to decode text if it's in bytes
+    def decode_text(article):
+        for lang in article:
+            if isinstance(article[lang]['text'], bytes):
+                article[lang]['text'] = article[lang]['text'].decode('utf-8')
+        return article
+
+    # Calculate token counts for each language in the 'train' split
+    token_counts = {lang: calculate_token_counts([decode_text(article)[lang] for article in datasets['train']]) for lang in datasets['train'][0].keys()}
     min_tokens = min(token_counts.values())
     max_tokens = min_tokens * (1 + max_diff_percent / 100)
 
-    # Adjust datasets to enforce token limit
-    adjusted_datasets = {'train': [], 'validation': []}
-    for lang, split_data in datasets.items():
-        token_count = 0
-        for article in split_data['train']:
-            article_tokens = len(encoder.encode(article['text']))
-            if token_count + article_tokens <= max_tokens:
-                adjusted_datasets['train'].append(article)
-                token_count += article_tokens
-
-        token_count = 0
-        for article in split_data['validation']:
-            article_tokens = len(encoder.encode(article['text']))
-            adjusted_datasets['validation'].append(article)
-            token_count += article_tokens
+    # Adjust training datasets to enforce token limit
+    adjusted_datasets = {'train': [], 'validation': datasets['validation']}
+    
+    token_counts = {lang: 0 for lang in datasets['train'][0].keys()}
+    for article in datasets['train']:
+        article = decode_text(article)
+        article_tokens = {lang: len(encoder.encode(article[lang]['text'])) for lang in article.keys()}
+        
+        # Check if adding this article would exceed the max token limit for any language
+        if all(token_counts[lang] + article_tokens[lang] <= max_tokens for lang in article.keys()):
+            adjusted_datasets['train'].append(article)
+            for lang in article.keys():
+                token_counts[lang] += article_tokens[lang]
 
     print("Step 6/7: Completed enforcing token limits.")
     return adjusted_datasets
+
+def ensure_text_is_decoded(datasets):
+    """
+    Ensure that all text fields in the dataset are decoded to strings.
+
+    Args:
+    datasets (dict): Dictionary of datasets for each split.
+
+    Returns:
+    dict: Datasets with all text fields decoded.
+    """
+    for split in datasets:
+        for article in datasets[split]:
+            for lang in article:
+                if isinstance(article[lang]['text'], bytes):
+                    article[lang]['text'] = article[lang]['text'].decode('utf-8')
+    return datasets
 
 def split_and_save_data(datasets, output_dir):
     """
@@ -186,6 +206,13 @@ def split_and_save_data(datasets, output_dir):
     tuple: New training and validation data.
     """
     print("Step 7/7: Splitting and saving data...")
+
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Ensure all text fields are decoded
+    datasets = ensure_text_is_decoded(datasets)
+
     with open(os.path.join(output_dir, 'wiki40b_multilang_train.json'), 'w', encoding='utf-8') as file:
         json.dump(datasets['train'], file, ensure_ascii=False, indent=4)
     with open(os.path.join(output_dir, 'wiki40b_multilang_validation.json'), 'w', encoding='utf-8') as file:
@@ -210,6 +237,7 @@ def main(args):
                           for split in ['train', 'validation']} for lang in langs}
 
     adjusted_datasets = enforce_token_limit(final_datasets, max_diff_percent)
+    adjusted_datasets = ensure_text_is_decoded(adjusted_datasets)
     split_and_save_data(adjusted_datasets, output_dir)
     print("Dataset creation process completed successfully.")
 
