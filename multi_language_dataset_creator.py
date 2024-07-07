@@ -105,6 +105,25 @@ def decode_bytes(data):
         return [decode_bytes(v) for v in data]
     return data
 
+def deep_decode(obj):
+    """
+    Recursively decode all byte objects within a given data structure.
+
+    Args:
+    obj: The data structure to decode.
+
+    Returns:
+    The decoded data structure.
+    """
+    if isinstance(obj, dict):
+        return {k: deep_decode(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [deep_decode(elem) for elem in obj]
+    elif isinstance(obj, bytes):
+        return obj.decode('utf-8')
+    else:
+        return obj
+
 def export_data(final_datasets, output_dir):
     """
     Export both training and validation datasets to JSON files.
@@ -114,8 +133,7 @@ def export_data(final_datasets, output_dir):
     output_dir (str): Output directory to save datasets.
     """
     print("Step 5/7: Exporting data to JSON files...")
-    final_datasets_decoded = {split: [decode_bytes(article) for article in articles]
-                              for split, articles in final_datasets.items()}
+    final_datasets_decoded = deep_decode(final_datasets)
     for split in final_datasets_decoded:
         with open(os.path.join(output_dir, f'wiki40b_multilang_{split}.json'), 'w', encoding='utf-8') as file:
             json.dump(final_datasets_decoded[split], file, ensure_ascii=False, indent=4)
@@ -177,23 +195,6 @@ def enforce_token_limit(datasets, max_diff_percent):
     print("Step 6/7: Completed enforcing token limits.")
     return adjusted_datasets
 
-def ensure_text_is_decoded(datasets):
-    """
-    Ensure that all text fields in the dataset are decoded to strings.
-
-    Args:
-    datasets (dict): Dictionary of datasets for each split.
-
-    Returns:
-    dict: Datasets with all text fields decoded.
-    """
-    for split in datasets:
-        for article in datasets[split]:
-            for lang in article:
-                if isinstance(article[lang]['text'], bytes):
-                    article[lang]['text'] = article[lang]['text'].decode('utf-8')
-    return datasets
-
 def split_and_save_data(datasets, output_dir):
     """
     Save the training and validation datasets to JSON files.
@@ -210,8 +211,8 @@ def split_and_save_data(datasets, output_dir):
     # Ensure the output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
-    # Ensure all text fields are decoded
-    datasets = ensure_text_is_decoded(datasets)
+    # Deep decode to ensure all text fields are decoded
+    datasets = deep_decode(datasets)
 
     with open(os.path.join(output_dir, 'wiki40b_multilang_train.json'), 'w', encoding='utf-8') as file:
         json.dump(datasets['train'], file, ensure_ascii=False, indent=4)
@@ -237,7 +238,7 @@ def main(args):
                           for split in ['train', 'validation']} for lang in langs}
 
     adjusted_datasets = enforce_token_limit(final_datasets, max_diff_percent)
-    adjusted_datasets = ensure_text_is_decoded(adjusted_datasets)
+    adjusted_datasets = deep_decode(adjusted_datasets)  # Ensure all text is decoded after adjusting
     split_and_save_data(adjusted_datasets, output_dir)
     print("Dataset creation process completed successfully.")
 
